@@ -1,0 +1,369 @@
+---
+title: "Project_week7"
+output: html_document
+---
+##1.数据获取
+```{r warning=FALSE}
+#导入数据集
+customer_data<-read.csv("customer survey data.csv")
+score_data<-read.csv("survey score data.csv")
+#查看数据的内容摘要
+summary(customer_data)
+summary(score_data)
+#展示部分数据
+head(customer_data)
+head(score_data)
+```
+
+##2. 数据清理
+###2.1 数据类型转换
+```{r warning=FALSE}
+#查看转换之前的数据类型
+class(customer_data$采访时间)
+#将采访时间转换为POSIXct类型的变量（dplyr包不支持POSIXlt类型）
+customer_data$采访时间 <- as.POSIXct(customer_data$采访时间)
+#查看转换之后的数据类型
+class(customer_data$采访时间)
+```
+
+###2.2 缺失值补值
+
+```{r message=TRUE, warning=FALSE}
+#用中位数填补缺失值
+#na.rm=TRUE，可以在计算以前移除缺失值并使用剩余值进行计算
+score_data[is.na(score_data$分数),"分数"] <- median(score_data$分数, na.rm=TRUE)
+#查看内容摘要，发现此时没有缺失值了（没有出现NA's）
+summary(score_data)
+
+```
+
+##3. 数据转换
+###3.1 合并表格
+```{r message=FALSE, warning=FALSE}
+#如没安装过dplyr的包要先安装，ggplot2等包同理
+#install.packages("dplyr")
+#加载dplyr包
+library(dplyr)
+#通过ID字段合并两张表
+combined.data <- customer_data %>% 
+  left_join(score_data, by="ID")
+#展示合并后的表格
+head(combined.data)
+```
+
+###3.2 创建新的变量
+####3.2.1 分数排序
+```{r}
+#增加“分数排名”变量
+combined.data <- combined.data %>% 
+  mutate('分数排名'=rank(desc(score_data$分数),ties.method = "min"))%>% 
+  #经过链条得到的结果是tibdle类型的数据，转换回数据框类型方便后续的处理
+  as.data.frame
+#查看数据
+head(combined.data)
+ 
+```
+####3.2.2 时间相关
+```{r}
+#增加“采访小时”变量
+combined.data <- combined.data %>% 
+  #将POSIXct类型的“采访时间”转换成POSIXlt类型，以便提取hour
+  mutate(采访小时=(as.POSIXlt(combined.data$采访时间))$hour)%>% 
+  #经过链条得到的结果是tibdle类型的数据，转换回数据框类型方便后续的处理
+  as.data.frame
+#查看数据
+head(combined.data)
+```
+
+####3.2.3推荐者判断
+```{r}
+#增加“推荐者”变量，打分大于等于9分的用户即为推荐者，记录为“TRUE”,否则记录为“FALSE”
+combined.data <- combined.data %>% 
+  mutate(推荐者=combined.data$分数>=9) %>%
+  as.data.frame
+#查看数据
+head(combined.data)
+```
+
+
+##4. 数据探索
+###4.1 受访用户所在城区与所打分数的关系（geom_dotplot、geom_boxplot）
+```{r two_figures, fig.height=5, fig.width=10, message=FALSE, warning=FALSE}  
+#点击当前chunk右上角的设置，可通过"Use custom figure size"设置figure展示的大小，设置后会自动生成上行代码中“fig.height=5, fig.width=10”。
+#如没安装过ggplot2的包要先安装，其他包同理
+#install.packages("ggplot2")
+#加载ggplot2包
+library(ggplot2)
+#设定combined.data为画图的数据，设定xy轴分别为城区、分数
+g1<-ggplot(data=combined.data,aes(x=城区,y=分数))+
+   geom_dotplot(binaxis="y",stackdir="center",dotsize = 0.7)+ #dotsize设置dot的大小，默认为1
+   ggtitle(paste( "受访用户所在城区与所打分数的关系"))+ #加标题
+   #设置title居中呈现
+   theme(plot.title = element_text(hjust = 0.5))
+g2<-ggplot(combined.data, aes(城区,分数))+
+   geom_boxplot()+
+   ggtitle(paste( "不同城区的受访用户所给分数的平均分对比"))+
+   #设置title居中呈现
+   theme(plot.title = element_text(hjust = 0.5))
+
+#加载Rmisc包
+library(Rmisc)
+#将g1 g2两个图并排展示
+multiplot(g1,g2,cols=2)
+```
+
+根据图表，海淀区用户的打分情况可能比其他城区好，下面求各个城区的平均分看一下
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+#求各个城区的平均分
+  combined.data %>% 
+    group_by(城区) %>% 
+dplyr:: summarise(平均分数=mean(分数))
+
+```
+
+
+四个城区的用户中，海淀区用户所给分数的平均分相对高些，说明海淀区用户对共享单车的满意度更高，可能跟海淀区高校多、互联网公司多、单车数量多等因素有关
+
+
+###4.2 受访用户的年龄与所打分数的关系（geom_count）
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+g<-ggplot(data=combined.data,aes(x=年龄,y=分数))
+g+ geom_count()+
+   ggtitle(paste( "受访用户的年龄与所打分数的关系"))+
+   #设置title居中呈现
+   theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+整体来看，年龄高的用户给出的分数高于年龄低的用户。在30岁以下用户群体中，用户所打的分数随着用户年龄的增加也呈线性关系增长；30岁以上的用户群体中，用户所打分数不再随着年龄增加而增加，这应该与分数最高为10分有关。
+
+
+###4.3 实验组用户与对照组用户所打分数的对比（geom_dotplot、geom_boxplot）
+```{r fig.height=5, fig.width=10, message=FALSE, warning=FALSE}
+library(ggplot2)
+g1<-ggplot(data=combined.data,aes(x=组别,y=分数))+
+   geom_dotplot(binaxis="y",stackdir="center",dotsize = 0.7)+
+   ggtitle(paste( "实验组用户与对照组用户所打分数的对比"))+
+   #设置title居中呈现
+   theme(plot.title = element_text(hjust = 0.5))
+g2<-ggplot(combined.data, aes(组别,分数))+
+   geom_boxplot()+
+   ggtitle(paste( "实验组用户与对照组用户所打分数的平均分对比"))+
+   #设置title居中呈现
+   theme(plot.title = element_text(hjust = 0.5))
+
+#加载Rmisc包
+library(Rmisc)
+#将g1 g2两个图并排展示
+multiplot(g1,g2,cols=2)
+```
+
+
+整体来看，实验组用户满意度分数低于对照组
+
+###4.4 采访用户的时间与用户所打分数的关系（geom_point）
+```{r warning=FALSE}
+library(ggplot2)
+g<-ggplot(data=combined.data,aes(x=采访小时,y=分数))
+g+ geom_point(alpha=1/3)+
+   ggtitle(paste( "采访用户的时间与用户所打分数的关系"))+
+   #设置title居中呈现
+   theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+根据目前结果来看，采访用户的时间与用户所打分数并没有什么明显关系
+
+
+###4.5 受访用户月收入与所打分数的关系（geom_jitter）
+```{r warning=FALSE}
+library(ggplot2)
+g<-ggplot(data=combined.data,aes(x=月收入,y=分数))
+g+ geom_jitter()+
+   ggtitle(paste( "受访用户月收入与所打分数的关系"))+
+   #设置title居中呈现
+   theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+没有发现受访用户月收入与所打分数之间的明显关系，看起来在受访用户中，月收入10000以下的用户多于月收入10000以上的用户
+
+
+
+
+###4.5 受访用户所在城区和受访用户年龄与所打分数三者的关系
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+g<-ggplot(combined.data,aes(x=城区,y=年龄))
+g+ geom_raster(aes(fill=分数))+
+   #默认颜色为低分深色高分浅色，调整为低分浅色高分深色
+   scale_fill_gradientn(colours=c("#FFFFFFFF","blue"))+
+   ggtitle(paste( "受访用户所在城区和受访用户年龄与所打分数三者的关系"))+
+   #设置title居中呈现
+   theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+相比于城区，分数的高低更依赖于年龄的大小
+
+
+
+
+
+##5. 分析与建模
+###5.1 满意分影响因素
+####5.1.1 决策树方法
+```{r}
+#install.packages("rpart")
+#install.packages("rpart.plot")
+library(rpart)
+library(rpart.plot)
+rtree_fit<-rpart(推荐者 ~ 城区+年龄+组别,data=combined.data)
+rpart.plot(rtree_fit)
+```
+
+
+年龄大于29的海淀区用户是推荐者的比例最高
+
+####5.1.2 线性回归方法
+#####步骤1：识别多重共线性对模型的干扰
+```{r message=FALSE, warning=FALSE}
+#install.packages("GGally")
+library(GGally)
+ggpairs(combined.data, columns = c("分数","组别","年龄","城区","车龄","采访小时","月收入"))
+```
+
+年龄与车龄强相关，去除车龄，保留年龄
+
+#####步骤2：检查多重共线性是否依然存在
+```{r message=FALSE, warning=FALSE}
+#install.packages("car")
+#消除多重共线性之前
+lm_fit <- lm(分数 ~ 城区+年龄+组别+车龄+采访小时+月收入, data = combined.data)#lm()是线性回归方程
+library(car)
+vif(lm_fit)
+#消除多重共线性之后
+lm_fit <- lm(分数 ~ 城区+年龄+组别+采访小时+月收入, data = combined.data)#lm()是线性回归方程
+library(car)
+vif(lm_fit)
+```
+
+通过GVIF值可见，多重共线性已经被消除了
+
+
+
+#####步骤3：挑选模型输入自变量
+```{r message=FALSE, warning=FALSE}
+#install.packages("olsrr")
+library(olsrr)
+
+#如果在加载olsrr包出现“cannot open the connection"问题，可全选下面代码运行：
+#install.packages("devtools")
+#install.packages("olsrr")
+#devtools::install_github("rsquaredacademy/olsrr")
+#library(olsrr)
+
+model <- lm(分数 ~ 城区+年龄+组别+采访小时+月收入, data = combined.data)
+k <- ols_step_all_possible(model)
+#为了使不同的自变量组合方案在html文件中都能展示，将k转换成数据框类型
+as.data.frame(k)
+```
+
+通过对比调整R^2 （Adj. R-Square）的大小，选择“城区+年龄+组别入”这组三个变量的搭配，因为它的调整R^2 值最大
+
+#####步骤4：运行线性回归模型
+```{r message=FALSE, warning=FALSE}
+
+lm_fit <- lm(分数 ~ 城区+年龄+组别, data = combined.data)
+summary(lm_fit)
+```
+
+
+###5.2 用户画像——K-Means
+####步骤1：肘部法则
+```{r}
+set.seed(1)#确定随机数生成函数的初始数，可使下面kmeans的结果在不同运行过程中重现
+cost.df <- data.frame()
+for(k in 1:10){
+  kmeans.fit <- kmeans(x=scale(combined.data[, c("月收入","年龄")]),centers=k)#对每一个聚类数目选择k，进行k-means聚类
+  cost.df <- rbind(cost.df, cbind(k, kmeans.fit$tot.withinss))#提取聚类结果得到的“到聚类中心的举例平方和（cost）”
+}
+names(cost.df) <- c("y","n")#对两列重命名
+ggplot(cost.df, aes(y,n))+
+  geom_point()+
+  xlab("聚类数目")+
+  ylab("到聚类中心的距离平方和(Cost)")
+```
+
+选取聚类数目k=5
+
+####步骤2:运行K-means模型
+```{r message=FALSE, warning=FALSE}
+set.seed(1)#确定随机数生成函数的初始数，可使下面kmeans的结果在不同运行过程中重现
+kmeans_cluster <- kmeans(scale(combined.data[, c("月收入","年龄")]),5)# kmeans()方差运行算法，选取聚类数目k=5
+combined.data$新标签 <- as.factor(kmeans_cluster$cluster) #重命名生成的新标签为中文
+#画图
+library(ggplot2)
+ggplot(combined.data, aes(年龄,月收入,color=新标签))+geom_point()
+
+```
+
+####步骤3:总结聚类结果
+```{r}
+## 生成用户画像的数据
+library(dplyr)
+combined.data %>% 
+  group_by(新标签) %>%
+dplyr::summarise(平均月收入=mean(月收入), 平均分数=mean(分数))
+```
+
+
+
+
+###5.3 ABtest
+
+在不同时期的新用户可能被收取￥99押金或免除押金，收取押金用户为实验组用户，其他用户为对照组用户。设计实验分析此次“收押金”，对用户的满意度分数有没有影响？
+
+####5.3.1ABtest-双样品z-检验（平均值）
+假设H0：收取押金对用户的满意度没有影响；假设H1：收取押金对用户的满意度有影响
+```{r message=FALSE, warning=FALSE}
+#定义两个样品集的数据
+s1 <- combined.data[combined.data$组别=="实验组","分数"]
+s2 <- combined.data[combined.data$组别=="对照组","分数"]
+#之前已经完成过缺失值检查与替换
+#双样品Z检验
+#install.packages("BSDA")
+library(BSDA)
+z.test(x=s1, sigma.x=sd(s1,na.rm = TRUE), y=s2, sigma.y = sd(s2, na.rm = TRUE), alternative = "two.sided")
+```
+通过ABtest-双样品z-检验（平均值）的结果来看，p-value = 0.3089 > 显著性水平0.05。因此，基于此次假设检验，我们无法拒绝原假设H0，收取押金对用户的满意度分数没有显著影响。
+
+####5.3.2ABtest-双样品z-检验（比例）
+假设H0：收取押金对用户的满意度没有影响；假设H1：收取押金对用户的满意度有影响
+```{r}
+#table函数生成透视表，查看组别vs推荐者两个变量之间的关系
+table(combined.data$组别,combined.data$推荐者)
+#双样品z-检验
+prop.test(table(combined.data$组别,combined.data$推荐者), alternative="two.sided")
+
+```
+
+通过ABtest-双样品z-检验（比例）的结果来看，p-value = 0.07441 > 显著性水平0.05。基于0.05显著性水平来看，我们无法拒绝原假设H0。
+但如果按照0.1显著性水平，收取押金会对用户稍稍有一点影响，应谨慎对待。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
